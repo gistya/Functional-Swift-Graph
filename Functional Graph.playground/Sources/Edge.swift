@@ -11,8 +11,16 @@ public struct Edge<_Content:Hashable> {
     }
     public init(from node1:_Node, to node2:_Node, isDirected:Bool) {
         var newDirectory:_Directory = _Directory()
-        newDirectory[node1.id] = isDirected ? Direction.to   : Direction.none
-        newDirectory[node2.id] = isDirected ? Direction.from : Direction.none
+        
+        // Note: for now we use "left" and "right" since most examples of graphs
+        // assume the graphs are chiral (i.e. all edges have a handedness and
+        // evaluation proceeds in a left-to-right fashion). Using "none" here
+        // was causing BFS and DFS to yield somewhat unpredicatable (although
+        // technically correct) results since dictionaries in Swift are unordered.
+        
+        newDirectory[node1.id] = isDirected ? Direction.to   : Direction.left
+        newDirectory[node2.id] = isDirected ? Direction.from : Direction.right
+        
         directory = newDirectory
     }
     public static func ==(lhs: Edge, rhs: Edge) -> Bool {

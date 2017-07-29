@@ -5,6 +5,8 @@ public typealias Id = Int
 public enum Direction:Equatable {
     case to
     case from
+    case left
+    case right
     case none
 }
 
@@ -13,8 +15,7 @@ public struct Graph<_Content:Hashable> {
     public typealias _Nodes = [_Node]
     public typealias _Edge = Edge<_Content>
     public typealias _Edges = [_Edge]
-    public typealias _Adjacents = [Id:_Edge]
-    public typealias _AdjacencyList = [_Adjacents]
+    public typealias _AdjacencyList = [_Edges]
     public typealias _Lookup = [_Content:[Id]]
     public typealias _Graph = Graph<_Content>
     public typealias _Direction = Direction
@@ -43,7 +44,7 @@ extension Graph {
     /// Add a node
     public func add(nodeWith content:_Content)->_Graph {
         var newAdjacencyList = adjacencyList
-        newAdjacencyList.append([:])
+        newAdjacencyList.append([])
         
         let newNode = _Node(id:nodeCount, value:content)
         
@@ -66,7 +67,7 @@ extension Graph {
             return self 
         } else {
             var newAdjacencyList = adjacencyList
-            newAdjacencyList.append([:])
+            newAdjacencyList.append([])
             
             var newNodes = nodes
             var newNode = node
@@ -91,7 +92,7 @@ extension Graph {
     public func remove(node nodeToRemove:_Node) /* throws */ ->_Graph {
         var newNodes = nodes
         var newAdjacencyList = adjacencyList
-        let removedAdjacents = adjacencyList[nodeToRemove.id]
+        //let removedAdjacents = adjacencyList[nodeToRemove.id]
         newAdjacencyList.remove(at: nodeToRemove.id)
         
         newNodes.remove(at: nodeToRemove.id)
@@ -101,52 +102,30 @@ extension Graph {
                 updatedNode.id -= 1
                 return updatedNode
             })
-        
-        // Get any incoming edges we need to remove, and remove them.
-        guard let edgesToRemove = edges(adjacentTo: nodeToRemove.id) else {
-            // If no edges were adjacent then just return self.
-            // TODO: possibly thrown an error?
-            return self
-        }
-        
-        // Iterate through the edges to remove. If they are part of the
-        // already removed adjacents, keep going. Otherwise, remove them.
-        _ = edgesToRemove.filter({(id,edge) in id != nodeToRemove.id }).filter({ (id,edge) in 
-            if let testEdge = removedAdjacents[id] {
-                return testEdge.hashValue != edge.hashValue
-            } else {
-                return true
-            }
-        }).filter({ (id,edge) in
-            edge.directory.keys.contains(nodeToRemove.id) == true
-        }).map { (id,edge) in
-            edge.directory.filter({ (id,direction) in id != nodeToRemove.id }).map({ (id,direction) in
-                let adjustment = id > nodeToRemove.id ? 1 : 0
-                let pos = id - adjustment
                 
-                // Get all the edges for that node.
-                var newAdjacents = newAdjacencyList[pos]
-                
-                // Find the position in that array of the edge to remove. 
-                newAdjacents.removeValue(forKey: nodeToRemove.id)
-                newAdjacencyList[pos] = newAdjacents
-            })
-        }
-        
         // Build a new graph from the new nodes and old adjacency list.
         var graph = Graph(isDirected:isDirected)
         for node in newNodes {
             graph = graph.add(nodeWith: node.value)
         }
-        _ = newAdjacencyList.map { adjacencySet in
-            adjacencySet
-                .filter({ (id,edge) in id != nodeToRemove.id })
-                .map({ (nodeId,edge) in
+        _ = newAdjacencyList.map { edges in
+            edges
+                .filter({ edge in 
+                    if nil == edge.directory.index(forKey: nodeToRemove.id) {
+                        return true
+                    }
+                    return false
+                })
+                .map({ edge in
+                    let nodeId = edge.directory.filter({ (id,direction) in
+                        let dir = isDirected ? Direction.from : Direction.left
+                        return direction == dir
+                    })[0].key
                     var newNodeId = nodeId
                     newNodeId > nodeToRemove.id ? newNodeId -= 1 :()
                     var otherNodeId = edge.other(nodeId:nodeId)
                     otherNodeId > nodeToRemove.id ? otherNodeId -= 1 :()
-                    graph = graph.connect(node1: graph.nodes[newNodeId], to: graph.nodes[otherNodeId])
+                    graph = graph.connect(node: graph.nodes[newNodeId], to: graph.nodes[otherNodeId])
                 })
         }
         return graph
@@ -158,10 +137,21 @@ extension Graph {
     
     /// Connect two nodes in the graph to each other
     /// Returns nil if the nodes weren't in the graph to begin with.
-    public func connect(node1:_Node, to node2:_Node) /* throws */ -> _Graph {
+    public func connect(node node1:_Node, to node2:_Node) /* throws */ -> _Graph {
         if self.nodes.contains(node1) == false || self.nodes.contains(node2) == false {
             print("ERROR .. attempt to connect nodes not in graph")
             //TODO: throw error
+            return self
+        }
+        
+        // Don't add an edge if there's already one.
+        let edges:_Edges = adjacencyList[node1.id]
+        if edges.contains(where: { existingEdge in
+            if existingEdge.directory.keys.contains(node1.id) && existingEdge.directory.keys.contains(node2.id) {
+                return true
+            }
+            return false
+        }) {
             return self
         }
         
@@ -169,9 +159,9 @@ extension Graph {
         
         // Add edge to adjacency list of graph
         var newAdjacencyList = adjacencyList
-        newAdjacencyList[node1.id][node2.id] = edge 
+        newAdjacencyList[node1.id].append(edge) 
         
-        if isDirected == false { newAdjacencyList[node2.id][node1.id] = edge } 
+        if isDirected == false { newAdjacencyList[node2.id].append(edge) } 
         
         // Return new graph
         let graph = Graph(nodes: nodes, adjacencyList: newAdjacencyList, lookup:lookup, isDirected: isDirected)
@@ -185,7 +175,7 @@ extension Graph {
     
     /// Returns nil if node is not in graph. 
     /// Returns [] if there are no adjacent edges. 
-    public func edges(adjacentTo node:_Node)->[Id:_Edge]? {
+    public func edges(adjacentTo node:_Node)->_Edges? {
         if(nodeCount <= node.id) {
             return nil
         }
@@ -196,7 +186,7 @@ extension Graph {
             return nil
         }
     }
-    public func edges(adjacentTo nodeId:Id)->[Id:_Edge]? {
+    public func edges(adjacentTo nodeId:Id)->_Edges? {
         if(nodeCount <= nodeId) {
             return nil
         }
@@ -206,11 +196,11 @@ extension Graph {
     /// Returns nil if content is not in graph.
     /// Otherwise returns a dictionary keyed by nodeId
     /// and valued with edges emanating from nodes that have the content. 
-    public func edges(adjacentToNodesWith content:_Content)->[Id:_Adjacents] {
+    public func edges(adjacentToNodesWith content:_Content)->[Id:_Edges] {
         guard let matchingNodeIds = lookup[content] else {
             return [:]
         }
-        var results = [Id:_Adjacents]()
+        var results = [Id:_Edges]()
         for nodeId in matchingNodeIds {
             results[nodeId] = self.edges(adjacentTo: nodeId)
         }
@@ -220,32 +210,66 @@ extension Graph {
 
 /// Search
 extension Graph { 
-    public func bfs(source: _Node)->_Graph {
+    
+    /// Uses Breadth First Search to flatten the graph. 
+    /// Returned graph will be a linked list in the order things were searched.
+    public func bfsFlatMap(source: _Node, query: _Node? = nil)->_Graph {
         var q = [_Node?]()
         q.append(source)
         var graph = _Graph()
         graph = graph.upsert(node: source)
         
         while let node = q.removeLast() {
-            _ = edges(adjacentTo: node).map({ idEdgeDict in
-                idEdgeDict.map({ (id,edge) in
+            if let edges = edges(adjacentTo: node) {
+                for edge in edges {
                     let neighbor = nodes[edge.other(nodeId: node.id)]
                     if !graph.nodes.contains(neighbor) {
-                        q.append(neighbor)
+                        q.insert(neighbor, at: 0)
                         graph = graph.upsert(node: neighbor)
+                        graph = graph.connect(node:graph.nodes[graph.nodeCount - 2], to:graph.nodes[graph.nodeCount - 1])
+                        if neighbor == query {
+                            return graph
+                        }
                     }
-                })
-            })
+                }
+            } 
             // necessary because q.removeLast() errors if q is empty :/
             if q.count == 0 {
                 break
             }
         }
-        for node in graph.nodes { 
-            if graph.nodes.endIndex - node.id < 2 {
-                continue
+        return graph
+    }
+    
+    /// Uses Depth First Search to flatten the graph. 
+    /// Returned graph will be a linked list in the order things were searched.
+    public func dfsFlatMap(source: _Node, query: _Node? = nil)->_Graph {
+        var s = [_Node?]()
+        s.append(source)
+        var graph = _Graph()
+        
+        var firstRun = true
+        while let node = s.removeFirst() {
+            if !graph.nodes.contains(node) {
+                graph = graph.upsert(node: node)
+                if(firstRun == false) {
+                    graph = graph.connect(node:graph.nodes[graph.nodeCount - 2], to:graph.nodes[graph.nodeCount - 1])
+                }
+                firstRun = false
+                if node == query {
+                    return graph
+                }
+                _ = edges(adjacentTo: node).map({ edges in
+                    edges.reversed().map({ edge in
+                        let neighbor = nodes[edge.other(nodeId: node.id)]
+                        s.insert(neighbor, at: 0)
+                    })
+                })
             }
-            graph = graph.connect(node1: node, to: graph.nodes[node.id + 1])
+            // necessary because q.removeLast() errors if q is empty :/
+            if s.count == 0 {
+                break
+            }
         }
         return graph
     }
