@@ -10,6 +10,50 @@ public enum Direction:Equatable {
     case none
 }
 
+protocol GraphInterface {
+    associatedtype _Content:Hashable
+    typealias _Node = Node<_Content>
+    typealias _Nodes = [_Node]
+    typealias _Edge = Edge<_Content>
+    typealias _Edges = [_Edge]
+    typealias _AdjacencyList = [_Edges]
+    typealias _Lookup = [_Content:[Id]]
+    typealias _Graph = Graph<_Content>
+    typealias _Direction = Direction
+    
+    var nodes:_Nodes {get}
+    var adjacencyList:_AdjacencyList {get}
+    var lookup:_Lookup {get}
+    var isDirected:Bool {get}
+}
+
+extension GraphInterface {
+    public var nodeCount:Id {
+        get {
+            return nodes.count
+        }
+    }
+    
+    public func add(nodeWith content:_Content)->_Graph {
+        var newAdjacencyList = adjacencyList
+        newAdjacencyList.append([])
+        
+        let newNode = _Node(id:nodeCount, value:content)
+        
+        var newNodes = nodes
+        newNodes.append(newNode)
+        
+        var newNodeLookup = self.lookup
+        if var lookup = newNodeLookup[content] {
+            lookup.append(newNode.id)
+            newNodeLookup[content] = lookup
+        } else {
+            newNodeLookup[content] = [newNode.id]
+        }
+        return Graph(nodes: newNodes, adjacencyList: newAdjacencyList, lookup: newNodeLookup, isDirected: isDirected)
+    }
+}
+
 public struct Graph<_Content:Hashable> {
     public typealias _Node = Node<_Content>
     public typealias _Nodes = [_Node]
